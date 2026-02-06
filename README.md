@@ -1,110 +1,89 @@
-# Hybrid GAN-EBM Inference Pipeline
 
-### Production-Grade Image Generation & Energy-Based Evaluation with NVIDIA Triton
+# Hybrid GAN-EBM Inference Service (NVIDIA Triton)
 
-This project implements a **Hybrid Generative Architecture** where a **Generative Adversarial Network (GAN)** handles image synthesis and an **Energy-Based Model (EBM)** acts as an expert evaluator. The entire pipeline is deployed using **NVIDIA Triton Inference Server** for high-performance, containerized serving.
+This repository contains a production-grade deployment of a **Generative Adversarial Network (GAN)** paired with an **Energy-Based Model (EBM)**. The system is orchestrated using the **NVIDIA Triton Inference Server**, enabling high-throughput, low-latency image generation and quality scoring.
 
-## 🚀 The Hybrid Approach
+## 🚀 System Architecture
 
-In this setup, the models play complementary roles:
+Unlike standard inference scripts, this project utilizes **Server-Side Orchestration**:
 
-* **The Generator (GAN):** Transforms a 128-dimensional latent noise vector into a  RGB image.
-* **The Evaluator (EBM):** Analyzes the generated image and assigns an **Energy Score**. Lower energy indicates the image more closely aligns with the learned data distribution (CIFAR-10).
-* **The Processor:** A custom client-side pipeline that takes the raw output and applies high-fidelity **Lanczos upscaling** to reach **4K resolution**.
+1. **Generator (GAN):** Transforms 128-dimensional latent noise into  (CIFAR-10 style) images.
+2. **Evaluator (EBM):** Analyzes the generated images and assigns an "Energy Score" (Lower = More Realistic).
+3. **Ensemble Pipeline:** A Triton Ensemble links both models internally, eliminating the need to pass heavy image data back and forth to the client.
 
----
+## 🛠 Features
 
-## 🏗 System Architecture
-
-The system is built to be modular and scalable, separating the inference logic from the model serving.
-
-### Key Technologies:
-
-* **NVIDIA Triton:** Orchestrates model execution and handles batching.
-* **TorchScript (.pt):** Models are serialized from PyTorch to TorchScript to remove Python-dependency during runtime.
-* **Docker:** Provides a consistent environment for the NVIDIA Container Toolkit.
+* **Dynamic Batching:** Automatically groups individual requests (up to batch size 32) to maximize GPU/CPU utilization.
+* **Production Monitoring:** Real-time metrics for Queue Time, Compute Latency, and Throughput available via the Prometheus endpoint.
+* **4K Post-Processing:** Built-in `utils` to upscale outputs to  using high-fidelity Lanczos interpolation.
+* **Hardware Agnostic:** Pre-configured for **KIND_CPU**; easily switchable to **KIND_GPU** for production clusters.
 
 ---
 
-## 📂 Model Repository Structure
+## 📁 Repository Structure
 
-Triton requires a strict folder hierarchy to serve models. **Note:** `.venv` and other scripts are kept outside the `triton_models` folder to avoid loading errors.
-
-```text
-.
-├── triton_models/             # Root model repository for Triton
-│   ├── generator/             # GAN Model Folder
-│   │   ├── 1/                 # Version 1
-│   │   │   └── model.pt       # TorchScript Model
-│   │   └── config.pbtxt       # Model configuration
-│   └── ebm/                   # Energy-Based Model Folder
-│       ├── 1/
-│       │   └── model.pt
-│       └── config.pbtxt
-├── test_inference.py          # 4K Inference Client
-└── requirements.txt           # Python dependencies
-
-```
+| File/Folder | Purpose |
+| --- | --- |
+| `triton_models/` | The Triton Model Repository containing model weights and `config.pbtxt` files. |
+| `client/test_inference.py` | Production-grade client script with latency reporting and batching support. |
+| `client/utils.py` | Data preparation and 4K image transformation toolkit. |
+| `docker-compose.yml` | Standardized environment setup for one-command deployment. |
+| `requirements.txt` | Python dependencies for the client application. |
 
 ---
 
-## 🛠 Setup & Deployment
+## 🚦 Quick Start
 
-### 1. Configure NVIDIA Container Toolkit
+### 1. Launch the Inference Server
 
-To enable GPU acceleration within the Docker container:
+Ensure you have Docker and Docker Compose installed. From the root directory, run:
 
 ```bash
-sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
+docker-compose up -d
 
 ```
 
-### 2. Launch the Triton Server
-
-Run the container and mount your model repository:
+### 2. Install Client Dependencies
 
 ```bash
-docker run --gpus all --rm \
-  -p 8000:8000 -p 8001:8001 -p 8002:8002 \
-  -v $(pwd)/triton_models:/models \
-  nvcr.io/nvidia/tritonserver:24.01-py3 \
-  tritonserver --model-repository=/models
+pip install -r requirements.txt
 
 ```
 
-### 3. Run the Inference Client
+### 3. Run Inference
 
-Once the server shows a `READY` status for both models, execute the client script to generate and upscale an image:
+The client generates a batch of 4 images, scores them via the EBM, and saves upscaled versions to the `generated_images/` folder.
 
 ```bash
-python3 test_inference.py
+python3 client/test_inference.py
 
 ```
 
 ---
 
-## ⚙️ Configuration Details (`config.pbtxt`)
+## 📊 Monitoring & Logs
 
-The models use a 4-dimensional input tensor to satisfy **Convolutional** layer requirements (`ConvTranspose2d`).
+This project prioritizes observability. You can monitor the health of your models directly through the terminal.
 
-**Generator Input Configuration:**
+**View Latency & Throughput Metrics:**
 
-```protobuf
-input [
-  {
-    name: "input__0"
-    data_type: TYPE_FP32
-    dims: [ 128, 1, 1 ]  # [Channels, Height, Width]
-  }
-]
+```bash
+curl -s localhost:8002/metrics | grep "nv_inference"
 
 ```
 
+**Key Metric Descriptions:**
+
+* `nv_inference_queue_duration_us`: Time requests wait in the scheduler.
+* `nv_inference_compute_infer_duration_us`: Actual time spent on model math.
+* `nv_inference_request_success`: Total successful generation cycles.
+
 ---
 
-## 🖼 Result Output
+## ⚙️ Configuration Tuning
 
-The pipeline produces a high-resolution image (`generated_4k.png`) by upscaling the  GAN output using **Lanczos interpolation** and a sharpening filter to maintain visual clarity at  resolution.
+To adjust the performance of the system, edit the `config.pbtxt` files within the `triton_models/` directory:
 
+* **Instance Count:** Increase `count` in `instance_group` to handle more parallel requests.
+* **Max Batch Size:** Adjust `max_batch_size` based on your available RAM/VRAM.
+* **Hardware Kind:** Swap `KIND_CPU` to `KIND_GPU` to leverage NVIDIA hardware acceleration.
