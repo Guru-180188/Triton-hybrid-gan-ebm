@@ -1,0 +1,55 @@
+name: "hybrid_pipeline"
+platform: "ensemble"
+max_batch_size: 32
+
+# Input to the whole pipeline (Noise)
+input [
+  {
+    name: "NOISE_INPUT"
+    data_type: TYPE_FP32
+    dims: [ 128, 1, 1 ]
+  }
+]
+
+# Output of the whole pipeline (Image + Score)
+output [
+  {
+    name: "FINAL_IMAGE"
+    data_type: TYPE_FP32
+    dims: [ 3, 32, 32 ]
+  },
+  {
+    name: "QUALITY_SCORE"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+  }
+]
+
+ensemble_scheduling {
+  step [
+    {
+      model_name: "generator"
+      model_version: -1
+      input_map { key: "input__0", value: "NOISE_INPUT" }
+      output_map { key: "output__0", value: "intermediate_image" }
+    },
+    {
+      model_name: "ebm"
+      model_version: -1
+      input_map { key: "input__0", value: "intermediate_image" }
+      output_map { key: "output__0", value: "QUALITY_SCORE" }
+    }
+  ]
+}
+
+# Map the intermediate image to the final output so we get both
+ensemble_scheduling {
+  step [
+    {
+      model_name: "generator"
+      model_version: -1
+      input_map { key: "input__0", value: "NOISE_INPUT" }
+      output_map { key: "output__0", value: "FINAL_IMAGE" }
+    }
+  ]
+}

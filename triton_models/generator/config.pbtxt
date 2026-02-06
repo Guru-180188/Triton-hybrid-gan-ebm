@@ -1,0 +1,35 @@
+name: "generator"
+platform: "pytorch_libtorch"
+max_batch_size: 32
+
+# SCHEDULING: Refined for CPU performance
+dynamic_batching {
+  # Matching your test batch size of 4 as the primary target
+  preferred_batch_size: [ 4, 8 ]
+  max_queue_delay_microseconds: 500
+}
+
+# PERFORMANCE: Load-balancing for CPU
+instance_group [
+  {
+    # Increased to 4 to handle the 2:1 latency gap vs the EBM
+    count: 4  
+    kind: KIND_CPU
+  }
+]
+
+input [
+  {
+    name: "input__0"
+    data_type: TYPE_FP32
+    dims: [ 128, 1, 1 ] 
+  }
+]
+
+output [
+  {
+    name: "output__0"
+    data_type: TYPE_FP32
+    dims: [ 3, 32, 32 ] 
+  }
+]

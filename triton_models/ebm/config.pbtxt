@@ -1,0 +1,36 @@
+name: "ebm"
+platform: "pytorch_libtorch"
+max_batch_size: 32
+
+# SCHEDULING: Optimized for high-frequency scoring
+dynamic_batching {
+  preferred_batch_size: [ 4, 8, 16, 32 ]
+  max_queue_delay_microseconds: 200 
+}
+
+# PERFORMANCE: Matching the throughput of the Generator
+instance_group [
+  {
+    count: 2  
+    kind: KIND_CPU
+  }
+]
+
+input [
+  {
+    name: "input__0"
+    data_type: TYPE_FP32
+    dims: [ 3, 32, 32 ]
+  }
+]
+
+output [
+  {
+    name: "output__0"
+    data_type: TYPE_FP32
+    dims: [ 1 ] 
+  }
+]
+
+# MONITORING: Allows side-by-side version testing in production
+version_policy: { all: {} }
